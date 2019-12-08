@@ -39,7 +39,7 @@ func Run() error {
 
 	r.Use(logrusLogger())
 
-	handlers.Register(r.RouterGroup)
+	handlers.Register(&r.RouterGroup)
 
 	return r.Run(viper.GetString(PathIP) + ":" + viper.GetString(PathPort))
 }

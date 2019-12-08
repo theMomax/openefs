@@ -3,7 +3,9 @@ package cli
 import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/theMomax/openefs/cache"
 	"github.com/theMomax/openefs/config"
+	"github.com/theMomax/openefs/models"
 	"github.com/theMomax/openefs/server"
 )
 
@@ -17,5 +19,7 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) {
+	models.Run()
+	cache.Run()
 	log.WithError(server.Run()).Panic("Unexpected panic!")
 }
