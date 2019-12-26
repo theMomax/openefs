@@ -53,3 +53,5 @@ Temporary Items
 # ----- Project ----------------------------------------------------------------
 
 openefs
+python/prototyping/*
+python/*.h5
