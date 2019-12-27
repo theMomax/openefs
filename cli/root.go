@@ -1,7 +1,7 @@
 package cli
 
 import (
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/theMomax/openefs/cache"
 	"github.com/theMomax/openefs/config"
@@ -11,7 +11,12 @@ import (
 
 func init() {
 	config.RootCtx.Run = run
+	config.OnInitialize(func() {
+		log = config.NewLogger()
+	})
 }
+
+var log *logrus.Logger
 
 // Execute executes the root command.
 func Execute() error {

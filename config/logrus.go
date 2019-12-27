@@ -1,8 +1,10 @@
 package config
 
 import (
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	"errors"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // Log formatter options
@@ -20,39 +22,72 @@ const (
 
 func init() {
 	// provide configuration
-	RootCtx.PersistentFlags().UintP(PathLevel, "l", uint(log.InfoLevel), "log level (Panic: 0, Fatal: 1, Error: 2, Warning: 3, Info: 4, Debug: 5, Trace: 6)")
-	viper.BindPFlag(PathLevel, RootCtx.PersistentFlags().Lookup(PathLevel))
+	RootCtx.PersistentFlags().UintP(PathLevel, "l", uint(logrus.InfoLevel), "log level (Panic: 0, Fatal: 1, Error: 2, Warning: 3, Info: 4, Debug: 5, Trace: 6)")
+	Viper.BindPFlag(PathLevel, RootCtx.PersistentFlags().Lookup(PathLevel))
 
 	RootCtx.PersistentFlags().String(PathFormatter, tty, "log format")
-	viper.BindPFlag(PathFormatter, RootCtx.PersistentFlags().Lookup(PathFormatter))
+	Viper.BindPFlag(PathFormatter, RootCtx.PersistentFlags().Lookup(PathFormatter))
 }
 
 func initializeLogrus() {
-	// choose formatter
-	log.SetFormatter(LogFormatter())
-
-	// set logging level
-	lvl := viper.GetUint32(PathLevel)
-	if uint32(log.TraceLevel) < lvl {
-		InvalidConfiguration(PathLevel, [...]log.Level{log.PanicLevel, log.FatalLevel, log.ErrorLevel, log.WarnLevel, log.InfoLevel, log.DebugLevel, log.TraceLevel})
+	// check logging level
+	lvl := Viper.GetUint32(PathLevel)
+	if uint32(logrus.TraceLevel) < lvl {
+		InvalidConfiguration(PathLevel, [...]logrus.Level{logrus.PanicLevel, logrus.FatalLevel, logrus.ErrorLevel, logrus.WarnLevel, logrus.InfoLevel, logrus.DebugLevel, logrus.TraceLevel})
 	}
-	log.SetLevel(log.Level(lvl))
+	// check logging format
+	LogFormatter()
+}
+
+// NewLogger returns a new logger instance as configured by this package's
+// viper instance.
+func NewLogger() *logrus.Logger {
+	l := logrus.New()
+	// choose formatter
+	l.SetFormatter(LogFormatter())
+
+	l.SetLevel(logrus.Level(Viper.GetUint32(PathLevel)))
+	return l
 }
 
 // LogFormatter returns the configured logrus formatter.
-func LogFormatter() log.Formatter {
-	switch viper.GetString(PathFormatter) {
+func LogFormatter() logrus.Formatter {
+	switch Viper.GetString(PathFormatter) {
 	case json:
-		return &log.JSONFormatter{}
+		return &logrus.JSONFormatter{}
 	case logfmt:
-		return &log.TextFormatter{
+		return &logrus.TextFormatter{
 			DisableColors: true,
 			FullTimestamp: true,
 		}
 	case tty:
-		return &log.TextFormatter{}
+		return &logrus.TextFormatter{}
 	default:
 		InvalidConfiguration(PathFormatter, [...]string{json, logfmt, tty})
 		return nil
 	}
+}
+
+func GinLogrusLogger() gin.HandlerFunc {
+	logger := logrus.New()
+	logger.SetFormatter(LogFormatter())
+	logger.SetLevel(logrus.GetLevel())
+
+	return gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+		fields := logger.WithFields(logrus.Fields{
+			"status_code":  p.StatusCode,
+			"latency_time": p.Latency,
+			"client_ip":    p.ClientIP,
+			"req_method":   p.Method,
+			"req_uri":      p.Request.RequestURI,
+		})
+
+		if p.ErrorMessage != "" {
+			fields.WithError(errors.New(p.ErrorMessage)).Error("GIN")
+		}
+
+		fields.Info("GIN")
+
+		return ""
+	})
 }

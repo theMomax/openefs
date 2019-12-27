@@ -3,7 +3,7 @@ package config
 import (
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -57,26 +57,34 @@ var (
 	}
 )
 
+// Viper instance to be used by everything that relies on this config-package.
+var Viper = viper.New()
+
 func init() {
 	// initialize config flags
 	RootCtx.PersistentFlags().StringP(PathEnv, "e", Development, "application context")
-	viper.BindPFlag(PathEnv, RootCtx.PersistentFlags().Lookup(PathEnv))
+	Viper.BindPFlag(PathEnv, RootCtx.PersistentFlags().Lookup(PathEnv))
 
 	RootCtx.PersistentFlags().StringP(PathConfig, "c", ConfigName, "configuration file's name (without extension)")
-	viper.BindPFlag(PathConfig, RootCtx.PersistentFlags().Lookup(PathConfig))
+	Viper.BindPFlag(PathConfig, RootCtx.PersistentFlags().Lookup(PathConfig))
 
 	RootCtx.PersistentFlags().StringArray(PathConfigPaths, ConfigPaths[:], "directories in which to look for config files")
-	viper.BindPFlag(PathConfigPaths, RootCtx.PersistentFlags().Lookup(PathConfigPaths))
+	Viper.BindPFlag(PathConfigPaths, RootCtx.PersistentFlags().Lookup(PathConfigPaths))
 
 	RootCtx.PersistentFlags().String(PathAuthor, Author, "author name for copyright attribution")
-	viper.BindPFlag(PathAuthor, RootCtx.PersistentFlags().Lookup(PathAuthor))
+	Viper.BindPFlag(PathAuthor, RootCtx.PersistentFlags().Lookup(PathAuthor))
 
 	RootCtx.PersistentFlags().String(PathLicense, License, "name of license for the project")
-	viper.BindPFlag(PathLicense, RootCtx.PersistentFlags().Lookup(PathLicense))
+	Viper.BindPFlag(PathLicense, RootCtx.PersistentFlags().Lookup(PathLicense))
 
+	OnInitialize(func() {
+		log = NewLogger()
+	})
 	OnInitialize(loadConfiguration)
 	OnInitialize(initializeLogrus)
 }
+
+var log *logrus.Logger
 
 // OnInitialize registers a function to be called after all the configuration-
 // parameters have been collected, but before the command is executed.
@@ -87,25 +95,25 @@ func OnInitialize(callbacks ...func()) {
 // InvalidConfiguration is a public helper-function, that is to be used for
 // complaining about invalid configuration.
 func InvalidConfiguration(identifier string, expected interface{}) {
-	log.WithFields(log.Fields{
+	log.WithFields(logrus.Fields{
 		"identifier": identifier,
 		"expected":   expected,
-		"actual":     viper.Get(identifier),
+		"actual":     Viper.Get(identifier),
 	}).Fatal("Invalid configuration!")
 }
 
 func loadConfiguration() {
 	// search for environment variables
-	viper.SetEnvPrefix(strings.ToUpper(ApplicationName))
-	viper.AutomaticEnv()
+	Viper.SetEnvPrefix(strings.ToUpper(ApplicationName))
+	Viper.AutomaticEnv()
 
 	// read config file
-	viper.SetConfigName(viper.GetString(PathConfig))
+	Viper.SetConfigName(Viper.GetString(PathConfig))
 	for _, p := range ConfigPaths {
-		viper.AddConfigPath(p)
+		Viper.AddConfigPath(p)
 	}
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := Viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			log.WithField("checked_directories", ConfigPaths[:]).Debug("No config file found!")
 		} else {
@@ -127,5 +135,5 @@ const (
 
 // Env returns the application's context.
 func Env() Environment {
-	return Environment(viper.GetString(PathEnv))
+	return Environment(Viper.GetString(PathEnv))
 }

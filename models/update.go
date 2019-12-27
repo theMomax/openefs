@@ -3,7 +3,6 @@ package models
 import (
 	"time"
 
-	"github.com/spf13/viper"
 	"github.com/theMomax/openefs/config"
 	"github.com/theMomax/openefs/models/production"
 	"github.com/theMomax/openefs/utils/metadata"
@@ -16,7 +15,7 @@ const (
 
 func init() {
 	config.RootCtx.PersistentFlags().Uint(PathBufferSize, 100, "the amount of model-update-requests per update-type, that can be buffered")
-	viper.BindPFlag(PathBufferSize, config.RootCtx.PersistentFlags().Lookup(PathBufferSize))
+	config.Viper.BindPFlag(PathBufferSize, config.RootCtx.PersistentFlags().Lookup(PathBufferSize))
 }
 
 // Update is any type, that contains update-information for a model. This can be
@@ -33,5 +32,5 @@ type Update interface {
 
 // Run parametrizes and starts the update-cycle-goroutines of all subpackages.
 func Run() {
-	production.Run(viper.GetUint(PathBufferSize))
+	production.Run(config.Viper.GetUint(PathBufferSize))
 }

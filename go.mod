@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/galeone/tfgo v0.0.0-20191125063756-4d78f04cfede
 	github.com/gin-gonic/gin v1.5.0
+	github.com/jonboulle/clockwork v0.1.0
 	github.com/magiconair/properties v1.8.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/spf13/cobra v0.0.5

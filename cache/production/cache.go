@@ -5,15 +5,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/viper"
-
 	"github.com/theMomax/openefs/config"
 	models "github.com/theMomax/openefs/models/production"
+	timeutils "github.com/theMomax/openefs/utils/time"
 )
 
 func init() {
 	config.OnInitialize(func() {
-		outdatedAfter = time.Duration(viper.GetInt64(models.PathStepSize))
+		outdatedAfter = config.Viper.GetDuration(models.PathStepSize)
 	})
 }
 
@@ -46,7 +45,7 @@ func handleUpdate(update models.Update) {
 
 	cm.RLock()
 	for t := range cache {
-		if time.Since(t) >= outdatedAfter {
+		if timeutils.Since(t) >= outdatedAfter {
 			cm.RUnlock()
 			cm.Lock()
 			delete(cache, t)
@@ -123,7 +122,7 @@ func Unsubscribe(id int64) {
 }
 
 func notify(update models.Update, subs ...*subscriber) {
-	if time.Since(update.Time()) >= outdatedAfter {
+	if timeutils.Since(update.Time()) >= outdatedAfter {
 		return
 	}
 
@@ -134,7 +133,7 @@ func notify(update models.Update, subs ...*subscriber) {
 		for id, s := range subscribers {
 			outdated := len(s.relativeTimestamps) == 0
 			for i := len(s.timestamps); i >= 0; i-- {
-				if time.Since(s.timestamps[i]) < outdatedAfter {
+				if timeutils.Since(s.timestamps[i]) < outdatedAfter {
 					outdated = false
 					break
 				} else {
@@ -164,7 +163,7 @@ outer:
 			}
 		}
 		for _, r := range s.relativeTimestamps {
-			if models.Round(time.Now().Add(r)) == updatetime {
+			if models.Round(timeutils.Now().Add(r)) == updatetime {
 				go s.callback(update)
 				continue outer
 			}

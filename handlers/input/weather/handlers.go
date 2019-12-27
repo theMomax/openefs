@@ -13,6 +13,7 @@ import (
 	models "github.com/theMomax/openefs/models/production/weather"
 
 	syncutils "github.com/theMomax/openefs/utils/synchronization"
+	timeutils "github.com/theMomax/openefs/utils/time"
 )
 
 // Register takes care of registering all handler functions to the router.
@@ -39,7 +40,7 @@ func handleBasicWeatherInput(ctx *gin.Context) {
 			data: &data,
 			time: timestamp,
 			meta: &metadata.Basic{
-				Timestamp:  time.Now(),
+				Timestamp:  timeutils.Now(),
 				Identifier: id,
 			},
 		}, 5*time.Second); !ok {

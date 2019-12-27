@@ -5,8 +5,7 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	"github.com/sirupsen/logrus"
 	"github.com/theMomax/openefs/config"
 	"github.com/theMomax/openefs/models/production/weather"
 	"github.com/theMomax/openefs/utils/metadata"
@@ -20,12 +19,17 @@ const (
 )
 
 func init() {
-	config.RootCtx.PersistentFlags().Uint64(PathStepSize, 3600, "the duration (in seconds) of a single time-step as required by the used production-forecasting-model")
-	viper.BindPFlag(PathStepSize, config.RootCtx.PersistentFlags().Lookup(PathStepSize))
+	config.RootCtx.PersistentFlags().Duration(PathStepSize, time.Hour, "the duration (in seconds) of a single time-step as required by the used production-forecasting-model")
+	config.Viper.BindPFlag(PathStepSize, config.RootCtx.PersistentFlags().Lookup(PathStepSize))
 
 	config.RootCtx.PersistentFlags().Uint(PathSteps, 120, "the amount of time-steps to predict for")
-	viper.BindPFlag(PathSteps, config.RootCtx.PersistentFlags().Lookup(PathSteps))
+	config.Viper.BindPFlag(PathSteps, config.RootCtx.PersistentFlags().Lookup(PathSteps))
+	config.OnInitialize(func() {
+		log = config.NewLogger()
+	})
 }
+
+var log *logrus.Logger
 
 // Update is the typed equivalence to models.Update for production-updates.
 type Update interface {
@@ -41,7 +45,7 @@ type Update interface {
 // production-forecasing-model.
 type Data struct {
 	// Power holds the average power produced by the system over some duration.
-	Power float64
+	Power float64 `csv:"relativePower"`
 }
 
 var weatherUpdates chan weather.Update
@@ -82,7 +86,7 @@ func UpdateWeather(update weather.Update, timeout ...time.Duration) (ok bool) {
 			select {
 			case weatherUpdates <- update:
 				return true
-			case <-time.After(timeout[0]):
+			case <-timeutils.After(timeout[0]):
 				return false
 			}
 		} else {
@@ -102,7 +106,7 @@ func UpdateProduction(update Update, timeout ...time.Duration) (ok bool) {
 			select {
 			case incomingProductionUpdates <- update:
 				return true
-			case <-time.After(timeout[0]):
+			case <-timeutils.After(timeout[0]):
 				return false
 			}
 		} else {
@@ -146,5 +150,5 @@ func notify(update Update) {
 
 // Round rounds the given time to the duration this model works on.
 func Round(t time.Time) time.Time {
-	return timeutils.Round(t, time.Duration(viper.GetUint64(PathStepSize)))
+	return timeutils.Round(t, config.Viper.GetDuration(PathStepSize))
 }

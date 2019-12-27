@@ -17,4 +17,16 @@ type Update interface {
 }
 
 // Data holds the weather-features required by this service.
-type Data struct{}
+type Data struct {
+	CloudCover               float64 `csv:"cloudCover"`
+	PrecipitationProbability float64 `csv:"precipitationProbability"`
+	PrecipitationIntensity   float64 `csv:"precipitationIntensity"`
+	WindSpeed                float64 `csv:"windSpeed"`
+	WindGust                 float64 `csv:"windGust"`
+	ApparentTemperature      float64 `csv:"apparentTemperature"`
+	Temperature              float64 `csv:"temperature"`
+	Humidity                 float64 `csv:"humidity"`
+	DewPoint                 float64 `csv:"dewPoint"`
+	Visibility               float64 `csv:"visibility"`
+	UVIndex                  float64 `csv:"uvIndex"`
+}
