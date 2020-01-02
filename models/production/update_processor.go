@@ -58,29 +58,28 @@ var cache = make(map[time.Time]*cupdate)
 
 var model metadata.Metadata
 
-func selectAndProcessUpdate() {
+func handleProductionUpdate(u Update) {
 	clearOutdatedCache()
-	select {
-	case u := <-incomingProductionUpdates:
-		log.WithField("id", u.Meta().ID()).WithField("time", u.Time()).Debug("received production update")
-		r := Round(u.Time())
-		if cache[r] == nil {
-			cache[r] = &cupdate{}
-		}
-		cache[r].p = u
-		cache[r].prodProvided = true
-		log.Debug("\n" + formatCache(cache))
-		applyUpdates()
-
-	case wu := <-weatherUpdates:
-		log.WithField("id", wu.Meta().ID()).WithField("time", wu.Time()).Trace("received weather update")
-		r := Round(wu.Time())
-		if cache[r] == nil {
-			cache[r] = &cupdate{}
-		}
-		cache[r].w = wu
-		applyUpdates()
+	log.WithField("id", u.Meta().ID()).WithField("time", u.Time()).Debug("received production update")
+	r := Round(u.Time())
+	if cache[r] == nil {
+		cache[r] = &cupdate{}
 	}
+	cache[r].p = u
+	cache[r].prodProvided = true
+	log.Debug("\n" + formatCache(cache))
+	applyUpdates()
+}
+
+func handleWeatherUpdate(wu weather.Update) {
+	clearOutdatedCache()
+	log.WithField("id", wu.Meta().ID()).WithField("time", wu.Time()).Trace("received weather update")
+	r := Round(wu.Time())
+	if cache[r] == nil {
+		cache[r] = &cupdate{}
+	}
+	cache[r].w = wu
+	applyUpdates()
 }
 
 func applyUpdates() {
@@ -123,7 +122,6 @@ outer:
 				log.Trace("step is to be predicted")
 				// can this step be predicted?
 				// the weather-value does exist for this timestamp, and both values exist for all required preceding steps, and there is no gap in the preceding steps
-				// TODO: only weather required or both or mix?
 				if forAllIs(timestamps, func(t time.Time) bool {
 					return weatherExists(cache[t])
 				}, rng(i-int(requiredPreceding), i)...) && forAllIs(timestamps, func(t time.Time) bool {
@@ -203,7 +201,7 @@ func training(t time.Time) (ok bool) {
 		}
 		args = append(args, formatTime(i)...)
 		args = append(args, formatWeather(cache[i].w.Data())...)
-		args = append(args, formatProduction(cache[i].p.Data())...) // TODO: remove notice (changed order, since target is expected at last position)
+		args = append(args, formatProduction(cache[i].p.Data())...)
 	}
 
 	log.Trace("calling python")

@@ -14,11 +14,12 @@ import (
 
 // Config paths
 const (
-	PathStepSize           = "models.production.stepsize"
-	PathBatchSize          = "models.production.batchsize"
-	PathInferenceBatchSize = "models.production.inferencebatchsize"
-	PathSteps              = "models.production.steps"
-	PathConsideredSteps    = "models.production.consideredsteps"
+	PathStepSize               = "models.production.stepsize"
+	PathBatchSize              = "models.production.batchsize"
+	PathInferenceBatchSize     = "models.production.inferencebatchsize"
+	PathSteps                  = "models.production.steps"
+	PathConsideredSteps        = "models.production.consideredsteps"
+	PathMaximumProductionPower = "models.production.maximumpower"
 )
 
 func init() {
@@ -37,12 +38,26 @@ func init() {
 	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 6, "the amount of preceding time-steps required for making a prediction")
 	config.Viper.BindPFlag(PathConsideredSteps, config.RootCtx.PersistentFlags().Lookup(PathConsideredSteps))
 
+	config.RootCtx.PersistentFlags().Float64(PathMaximumProductionPower, 0, "the installed peak-production power (in Watts)")
+	config.Viper.BindPFlag(PathMaximumProductionPower, config.RootCtx.PersistentFlags().Lookup(PathMaximumProductionPower))
+
 	config.OnInitialize(func() {
 		log = config.NewLogger()
+	})
+
+	config.OnInitialize(func() {
+		maximumProductionPower = config.Viper.GetFloat64(PathMaximumProductionPower)
+		if maximumProductionPower <= 0 {
+			config.InvalidConfiguration(PathMaximumProductionPower, "(0, +inf) W")
+		}
 	})
 }
 
 var log *logrus.Logger
+
+var (
+	maximumProductionPower float64
+)
 
 // Update is the typed equivalence to models.Update for production-updates.
 type Update interface {
@@ -58,7 +73,7 @@ type Update interface {
 // production-forecasing-model.
 type Data struct {
 	// Power holds the average power produced by the system over some duration.
-	Power float64 `csv:"relativeProduction"`
+	Power float64 `csv:"production"`
 }
 
 var weatherUpdates chan weather.Update
@@ -77,14 +92,22 @@ func Run(bufferSize uint) {
 	// start goroutine, that feeds into the model
 	go func() {
 		for {
-			selectAndProcessUpdate()
+			select {
+			case u := <-incomingProductionUpdates:
+				u.Data().Power /= maximumProductionPower
+				handleProductionUpdate(u)
+			case wu := <-weatherUpdates:
+				handleWeatherUpdate(wu)
+			}
 		}
 	}()
 
 	// start goroutine, that updates the subscribers
 	go func() {
 		for {
-			notify(<-outgoingProductionUpdates)
+			u := <-outgoingProductionUpdates
+			u.Data().Power *= maximumProductionPower
+			notify(u)
 		}
 	}()
 }
