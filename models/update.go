@@ -14,7 +14,7 @@ const (
 )
 
 func init() {
-	config.RootCtx.PersistentFlags().Uint(PathBufferSize, 100, "the amount of model-update-requests per update-type, that can be buffered")
+	config.RootCtx.PersistentFlags().Uint(PathBufferSize, 500, "the amount of model-update-requests per update-type, that can be buffered")
 	config.Viper.BindPFlag(PathBufferSize, config.RootCtx.PersistentFlags().Lookup(PathBufferSize))
 }
 
