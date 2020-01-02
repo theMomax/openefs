@@ -14,16 +14,29 @@ import (
 
 // Config paths
 const (
-	PathStepSize = "models.production.stepsize"
-	PathSteps    = "models.production.steps"
+	PathStepSize           = "models.production.stepsize"
+	PathBatchSize          = "models.production.batchsize"
+	PathInferenceBatchSize = "models.production.inferencebatchsize"
+	PathSteps              = "models.production.steps"
+	PathConsideredSteps    = "models.production.consideredsteps"
 )
 
 func init() {
 	config.RootCtx.PersistentFlags().Duration(PathStepSize, time.Hour, "the duration (in seconds) of a single time-step as required by the used production-forecasting-model")
 	config.Viper.BindPFlag(PathStepSize, config.RootCtx.PersistentFlags().Lookup(PathStepSize))
 
+	config.RootCtx.PersistentFlags().Uint(PathBatchSize, 24, "the amount of new values required to start an update of the production-model")
+	config.Viper.BindPFlag(PathBatchSize, config.RootCtx.PersistentFlags().Lookup(PathBatchSize))
+
+	config.RootCtx.PersistentFlags().Uint(PathInferenceBatchSize, 24, "the amount of steps compiled into a single inference process")
+	config.Viper.BindPFlag(PathInferenceBatchSize, config.RootCtx.PersistentFlags().Lookup(PathInferenceBatchSize))
+
 	config.RootCtx.PersistentFlags().Uint(PathSteps, 120, "the amount of time-steps to predict for")
 	config.Viper.BindPFlag(PathSteps, config.RootCtx.PersistentFlags().Lookup(PathSteps))
+
+	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 6, "the amount of preceding time-steps required for making a prediction")
+	config.Viper.BindPFlag(PathConsideredSteps, config.RootCtx.PersistentFlags().Lookup(PathConsideredSteps))
+
 	config.OnInitialize(func() {
 		log = config.NewLogger()
 	})
@@ -45,7 +58,7 @@ type Update interface {
 // production-forecasing-model.
 type Data struct {
 	// Power holds the average power produced by the system over some duration.
-	Power float64 `csv:"relativePower"`
+	Power float64 `csv:"relativeProduction"`
 }
 
 var weatherUpdates chan weather.Update
@@ -57,16 +70,14 @@ var sm = &sync.RWMutex{}
 
 // Run starts this model's update-cycle-goroutines.
 func Run(bufferSize uint) {
+	weatherUpdates = make(chan weather.Update, bufferSize)
+	incomingProductionUpdates = make(chan Update, bufferSize)
+	outgoingProductionUpdates = make(chan Update, bufferSize)
+
 	// start goroutine, that feeds into the model
 	go func() {
 		for {
-			// TODO: implement (mock implementation for now)
-			select {
-			case u := <-incomingProductionUpdates:
-				outgoingProductionUpdates <- u
-			case wu := <-weatherUpdates:
-				log.WithField("timestamp", wu.Time()).WithField("data", wu.Data()).WithField("meta", wu.Meta()).Info("received (and discarded) weather-update")
-			}
+			selectAndProcessUpdate()
 		}
 	}()
 
@@ -86,7 +97,7 @@ func UpdateWeather(update weather.Update, timeout ...time.Duration) (ok bool) {
 			select {
 			case weatherUpdates <- update:
 				return true
-			case <-timeutils.After(timeout[0]):
+			case <-time.After(timeout[0]): // Timeout must not be mocked!
 				return false
 			}
 		} else {
@@ -106,7 +117,7 @@ func UpdateProduction(update Update, timeout ...time.Duration) (ok bool) {
 			select {
 			case incomingProductionUpdates <- update:
 				return true
-			case <-timeutils.After(timeout[0]):
+			case <-time.After(timeout[0]): // Timeout must not be mocked!
 				return false
 			}
 		} else {
@@ -151,4 +162,22 @@ func notify(update Update) {
 // Round rounds the given time to the duration this model works on.
 func Round(t time.Time) time.Time {
 	return timeutils.Round(t, config.Viper.GetDuration(PathStepSize))
+}
+
+type update struct {
+	data *Data
+	time time.Time
+	meta metadata.Metadata
+}
+
+func (u *update) Data() *Data {
+	return u.data
+}
+
+func (u *update) Time() time.Time {
+	return u.time
+}
+
+func (u *update) Meta() metadata.Metadata {
+	return u.meta
 }
