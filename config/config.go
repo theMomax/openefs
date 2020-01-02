@@ -87,9 +87,22 @@ func init() {
 var log *logrus.Logger
 
 // OnInitialize registers a function to be called after all the configuration-
-// parameters have been collected, but before the command is executed.
-func OnInitialize(callbacks ...func()) {
-	cobra.OnInitialize(callbacks...)
+// parameters have been collected, but before the command is executed. It makes
+// sure, that the function is only called, if the package is used in context of
+// this program. If the calling package is reused by another project, the given
+// callback will not be called.
+func OnInitialize(callback func()) {
+	cobra.OnInitialize(func() {
+		if RootCtx.Run != nil {
+			callback()
+		}
+	})
+}
+
+// OnAnyInitialize registers a function to be called after all the configuration
+// -parameters have been collected, but before the command is executed.
+func OnAnyInitialize(callback func()) {
+	cobra.OnInitialize(callback)
 }
 
 // InvalidConfiguration is a public helper-function, that is to be used for
