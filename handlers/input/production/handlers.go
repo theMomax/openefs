@@ -43,8 +43,8 @@ func handleBasicProductionInput(ctx *gin.Context) {
 			},
 		}, 5*time.Second); !ok {
 			ctx.AbortWithError(http.StatusIMUsed, errors.New("system is overloaded: model update-pipeline is full"))
+		} else {
+			ctx.Status(http.StatusOK)
 		}
 	})
-
-	ctx.Status(http.StatusOK)
 }
