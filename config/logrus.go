@@ -18,6 +18,7 @@ const (
 const (
 	PathLevel     = "loglevel"
 	PathFormatter = "logformatter"
+	PathIgnoreGin = "logignoregin"
 )
 
 func init() {
@@ -27,6 +28,9 @@ func init() {
 
 	RootCtx.PersistentFlags().String(PathFormatter, tty, "log format")
 	Viper.BindPFlag(PathFormatter, RootCtx.PersistentFlags().Lookup(PathFormatter))
+
+	RootCtx.PersistentFlags().Bool(PathIgnoreGin, false, "hide gin's ouput (http server)")
+	Viper.BindPFlag(PathIgnoreGin, RootCtx.PersistentFlags().Lookup(PathIgnoreGin))
 }
 
 func initializeLogrus() {
@@ -72,6 +76,12 @@ func GinLogrusLogger() gin.HandlerFunc {
 	logger := logrus.New()
 	logger.SetFormatter(LogFormatter())
 	logger.SetLevel(logrus.GetLevel())
+
+	if Viper.GetBool(PathIgnoreGin) {
+		return gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+			return ""
+		})
+	}
 
 	return gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
 		fields := logger.WithFields(logrus.Fields{
