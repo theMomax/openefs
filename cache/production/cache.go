@@ -148,7 +148,7 @@ func notify(update models.Update, subs ...*subscriber) {
 
 			subs = append(subs, s)
 		}
-		sm.Unlock()
+		sm.RUnlock()
 	}
 
 	// check if subscriber subscribed to the update's timestamp and notify in case
