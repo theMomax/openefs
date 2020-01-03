@@ -30,18 +30,19 @@ func init() {
 			Identifier: 0,
 		}
 		if _, err := os.Stat("./python/production.h5"); os.IsNotExist(err) {
+			log.Info("creating production model...")
 			err := exec.Command("python3", "./python/build_model_production.py", "./python/production.h5").Run()
 			if err != nil {
 				log.WithError(err).Fatal("could not create production-model")
 			}
+			log.Debug("production-model created")
 		}
 	})
 }
 
 type cupdate struct {
-	p            Update
-	w            weather.Update
-	prodProvided bool
+	p Update
+	w weather.Update
 }
 
 var (
@@ -66,8 +67,17 @@ func handleProductionUpdate(u Update) {
 		cache[r] = &cupdate{}
 	}
 	cache[r].p = u
-	cache[r].prodProvided = true
-	log.Debug("\n" + formatCache(cache))
+	log.WithField("id", u.Meta().ID()).WithField("time", u.Time()).WithField("value", u.Data().Power).Trace("sending received update into outgoing channel")
+	// send copy of actual data, so that changes are not reflected inside this file's logic
+	outgoingProductionUpdates <- &update{
+		time: u.Time(),
+		meta: u.Meta(),
+		data: &Data{
+			Power: u.Data().Power,
+		},
+		derived: false,
+	}
+	log.Trace("\n" + formatCache(cache))
 	applyUpdates()
 }
 
@@ -77,6 +87,11 @@ func handleWeatherUpdate(wu weather.Update) {
 	r := Round(wu.Time())
 	if cache[r] == nil {
 		cache[r] = &cupdate{}
+	}
+	// do only apply update if it really contains new information
+	if cache[r].w != nil && weather.Equal(cache[r].w.Data(), wu.Data()) {
+		log.WithField("time", wu.Time()).Trace("dropped duplicate-update")
+		return
 	}
 	cache[r].w = wu
 	applyUpdates()
@@ -108,7 +123,7 @@ outer:
 				// can the model be updated?
 				// both values exist for all required preceding and subsequent steps and this one, and there is no gap in the steps
 				if forAllIs(timestamps, func(t time.Time) bool {
-					return fullyExists(cache[t]) && cache[t].prodProvided
+					return fullyExists(cache[t]) && !cache[t].p.IsDerived()
 				}, rngI(i-int(requiredPreceding), i+int(requiredSubsequent))...) && isGapless(timestamps, i-int(requiredPreceding), i+int(requiredSubsequent), stepsize) {
 					log.Trace("step fullfills requirements for model update")
 					modelDidChange = training(t)
@@ -118,16 +133,18 @@ outer:
 
 			// is this step to be predicted?
 			// the value was not predicted yet, or ((the value was predicted with an older model or from older weather-data) and the value was not provided yet)
-			if c == nil || c.p == nil || ((c.p.Meta().ID() < model.ID() || (c.w != nil && c.p.Meta().ID() < c.w.Meta().ID())) && !c.prodProvided) {
-				log.Trace("step is to be predicted")
+			if c == nil || c.p == nil || ((c.p.Meta().ID() < model.ID() || (c.w != nil && c.p.Meta().ID() < c.w.Meta().ID())) && c.p.IsDerived()) {
+				log.WithField("time", t).Trace("step is to be predicted")
+
 				// can this step be predicted?
 				// the weather-value does exist for this timestamp, and both values exist for all required preceding steps, and there is no gap in the preceding steps
 				if forAllIs(timestamps, func(t time.Time) bool {
 					return weatherExists(cache[t])
 				}, rng(i-int(requiredPreceding), i)...) && forAllIs(timestamps, func(t time.Time) bool {
-					return weatherExists(cache[t]) && (c.p == nil || !c.prodProvided)
+					return weatherExists(cache[t]) && (c.p == nil || c.p.IsDerived())
 				}, rngI(i, i+int(requiredInferenceSubsequent))...) && isGapless(timestamps, i-int(requiredPreceding), i+int(requiredInferenceSubsequent), stepsize) {
 					log.Trace("step can be predicted")
+					log.Trace(formatCache(cache))
 					inference(t)
 				}
 			}
@@ -176,18 +193,19 @@ func inference(t time.Time) {
 			data: &Data{
 				Power: output[i][0],
 			},
-			time: t,
-			meta: m,
+			time:    t,
+			meta:    m,
+			derived: true,
 		}
-		log.WithField("id", cache[t].p.Meta().ID()).WithField("time", cache[t].p.Time()).WithField("value", cache[t].p.Data().Power).WithField("id", cache[t].p.Meta().ID()).Debug("sending update into outgoing channel")
+		log.WithField("id", cache[t].p.Meta().ID()).WithField("time", cache[t].p.Time()).WithField("value", cache[t].p.Data().Power).WithField("id", cache[t].p.Meta().ID()).Trace("sending update into outgoing channel")
 		outgoingProductionUpdates <- cache[t].p
 	}
 
-	log.Debug("predicted production-value")
+	log.Debug("predicted production-values")
 }
 
 func training(t time.Time) (ok bool) {
-	log.Debug("starting training...")
+	log.WithField("time", t).Debug("starting training...")
 	latest := model
 
 	args := []string{"./python/production.h5"}
@@ -295,7 +313,7 @@ func forAllIs(timeline []time.Time, condition func(time.Time) bool, indices ...i
 }
 
 func formatCache(cache map[time.Time]*cupdate) string {
-	s := "time\t\t\t\t | ahead\t\t\t\t | id\t\t\t\t | production\t\t\t\t | weather\t\t\t\t | prodProvided\n========================================================================================================================================\n"
+	s := "time\t\t\t\t | ahead\t\t\t\t | production\t\t\t\t | weather\t\t\t\t | prodDerived\n========================================================================================================================================\n"
 
 	timestamps := make([]time.Time, 0, len(cache))
 	for t := range cache {
@@ -327,7 +345,7 @@ func formatCache(cache map[time.Time]*cupdate) string {
 
 				s += "some" + " (" + strconv.Itoa(int(c.w.Meta().ID())) + ")" + "\t\t\t\t"
 			}
-			if c.prodProvided {
+			if c.p != nil && c.p.IsDerived() {
 				s += "true\n"
 			} else {
 				s += "false\n"

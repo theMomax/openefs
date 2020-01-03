@@ -24,3 +24,7 @@ func (u *update) Time() time.Time {
 func (u *update) Meta() metadata.Metadata {
 	return u.meta
 }
+
+func (u *update) IsDerived() bool {
+	return false
+}

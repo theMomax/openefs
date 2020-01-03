@@ -30,3 +30,17 @@ type Data struct {
 	Visibility               float64 `csv:"visibility"`
 	UVIndex                  float64 `csv:"uvIndex"`
 }
+
+func Equal(x, y *Data) bool {
+	if x == nil && y == nil {
+		return true
+	} else if x == nil {
+		return false
+	} else if y == nil {
+		return false
+	} else if x.CloudCover == y.CloudCover && x.PrecipitationProbability == y.PrecipitationProbability && x.PrecipitationIntensity == y.PrecipitationIntensity && x.WindSpeed == y.WindSpeed && x.WindGust == y.WindGust && x.ApparentTemperature == y.ApparentTemperature && x.Temperature == y.Temperature && x.Humidity == y.Humidity && x.DewPoint == y.DewPoint && x.Visibility == y.Visibility && x.UVIndex == y.UVIndex {
+		return true
+	} else {
+		return false
+	}
+}

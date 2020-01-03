@@ -17,7 +17,6 @@ const (
 	PathStepSize               = "models.production.stepsize"
 	PathBatchSize              = "models.production.batchsize"
 	PathInferenceBatchSize     = "models.production.inferencebatchsize"
-	PathSteps                  = "models.production.steps"
 	PathConsideredSteps        = "models.production.consideredsteps"
 	PathMaximumProductionPower = "models.production.maximumpower"
 )
@@ -31,9 +30,6 @@ func init() {
 
 	config.RootCtx.PersistentFlags().Uint(PathInferenceBatchSize, 24, "the amount of steps compiled into a single inference process")
 	config.Viper.BindPFlag(PathInferenceBatchSize, config.RootCtx.PersistentFlags().Lookup(PathInferenceBatchSize))
-
-	config.RootCtx.PersistentFlags().Uint(PathSteps, 120, "the amount of time-steps to predict for")
-	config.Viper.BindPFlag(PathSteps, config.RootCtx.PersistentFlags().Lookup(PathSteps))
 
 	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 6, "the amount of preceding time-steps required for making a prediction")
 	config.Viper.BindPFlag(PathConsideredSteps, config.RootCtx.PersistentFlags().Lookup(PathConsideredSteps))
@@ -67,6 +63,9 @@ type Update interface {
 	Time() time.Time
 	// Meta contains metadata about this update.
 	Meta() metadata.Metadata
+	// Returns false if the Update was provided by an external source and true
+	// if the Update was derived from another Update by this system.
+	IsDerived() bool
 }
 
 // Data contains the data required by this package's underlying
@@ -188,9 +187,10 @@ func Round(t time.Time) time.Time {
 }
 
 type update struct {
-	data *Data
-	time time.Time
-	meta metadata.Metadata
+	data    *Data
+	time    time.Time
+	meta    metadata.Metadata
+	derived bool
 }
 
 func (u *update) Data() *Data {
@@ -203,4 +203,8 @@ func (u *update) Time() time.Time {
 
 func (u *update) Meta() metadata.Metadata {
 	return u.meta
+}
+
+func (u *update) IsDerived() bool {
+	return u.derived
 }
