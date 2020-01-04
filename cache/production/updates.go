@@ -34,8 +34,8 @@ func Run() {
 	})
 }
 
-func outdated(hash interface{}) bool {
-	t, ok := hash.(time.Time)
+func outdated(at interface{}) bool {
+	t, ok := at.(time.Time)
 	return !ok || timeutils.Since(t) >= outdatedAfter
 }
 

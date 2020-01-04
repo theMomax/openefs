@@ -17,6 +17,10 @@ func NewMAE(halfLife float64) *Average {
 	return NewAverage(math.Pow(0.5, 1/halfLife), ABSDIFF)
 }
 
+func NewAverageSum(halfLife float64) *Average {
+	return NewAverage(math.Pow(0.5, 1/halfLife), SUM)
+}
+
 func NewAverage(weight float64, operator func(...float64) float64) *Average {
 	return &Average{
 		sum:      0,

@@ -101,8 +101,8 @@ func Run() {
 
 }
 
-func outdated(hash interface{}) bool {
-	t, ok := hash.(time.Time)
+func outdated(at interface{}) bool {
+	t, ok := at.(time.Time)
 	completedm.RLock()
 	defer completedm.RUnlock()
 	b := !ok || completed.Sub(t) >= outdatedAfter
