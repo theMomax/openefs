@@ -31,7 +31,7 @@ func init() {
 	config.RootCtx.PersistentFlags().Uint(PathInferenceBatchSize, 24, "the amount of steps compiled into a single inference process")
 	config.Viper.BindPFlag(PathInferenceBatchSize, config.RootCtx.PersistentFlags().Lookup(PathInferenceBatchSize))
 
-	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 6, "the amount of preceding time-steps required for making a prediction")
+	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 2, "the amount of preceding time-steps required for making a prediction")
 	config.Viper.BindPFlag(PathConsideredSteps, config.RootCtx.PersistentFlags().Lookup(PathConsideredSteps))
 
 	config.RootCtx.PersistentFlags().Float64(PathMaximumProductionPower, 0, "the installed peak-production power (in Watts)")

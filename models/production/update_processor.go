@@ -3,6 +3,7 @@ package production
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"sort"
@@ -31,9 +32,10 @@ func init() {
 		}
 		if _, err := os.Stat("./python/production.h5"); os.IsNotExist(err) {
 			log.Info("creating production model...")
-			err := exec.Command("python3", "./python/build_model_production.py", "./python/production.h5").Run()
+			cmd := exec.Command("python3", "./python/build_model_production.py", "./python/production.h5")
+			out, err := cmd.CombinedOutput()
 			if err != nil {
-				log.WithError(err).Fatal("could not create production-model")
+				log.WithError(err).WithField("out", string(out)).Fatal("could not create production-model")
 			}
 			log.Debug("production-model created")
 		}
@@ -156,9 +158,11 @@ func inference(t time.Time) {
 	log.WithField("time", t).Debug("starting inference...")
 	args := []string{"./python/production.h5"}
 	end := t.Add(time.Duration(requiredInferenceSubsequent) * stepsize)
-	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); end.Sub(i) > 0; i = i.Add(stepsize) {
-		args = append(args, formatTime(i)...)
-		args = append(args, formatWeather(cache[i].w.Data())...)
+	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
+		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) >= 0; j = j.Add(stepsize) {
+			args = append(args, formatTime(j)...)
+			args = append(args, formatWeather(cache[j].w.Data())...)
+		}
 	}
 
 	log.Trace("calling python")
@@ -170,10 +174,20 @@ func inference(t time.Time) {
 	}
 
 	var output [][]float64
-	fout := bytes.ReplaceAll(bytes.Split(bytes.TrimSpace(out), []byte("Model output:\n"))[1], []byte{'\n'}, []byte{','})
-	err = json.Unmarshal(fout, &output)
+	elems := bytes.Split(bytes.TrimSpace(out), []byte("Model output:\n"))
+	fout := []byte{}
+	if len(elems) == 2 {
+		fout = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(elems[1], []byte{' '}, []byte{}), []byte{'\n'}, []byte{','}), []byte{'0', '.', ']'}, []byte{'0', '.', '0', ']'}), []byte{',', ','}, []byte{','})
+		err = json.Unmarshal(fout, &output)
+	} else {
+		err = errors.New("inference-ouput does not contain result-section")
+	}
 	if err != nil {
-		log.WithError(err).WithField("out", string(fout)).Error("inference on production model failed")
+		if len(elems) == 2 {
+			log.WithError(err).WithField("out", string(fout)).Error("inference on production model failed")
+		} else {
+			log.WithError(err).WithField("out", string(out)).Error("inference on production model failed")
+		}
 		return
 	}
 
@@ -183,7 +197,7 @@ func inference(t time.Time) {
 		cache[t] = &cupdate{}
 	}
 
-	for i := range output[len(output)-int(inferenceBatchSize):] {
+	for i := range output {
 		t := t.Add(time.Duration(i) * stepsize)
 		m := latest(model, cache[t].w.Meta())
 		if i > 0 {
@@ -210,15 +224,17 @@ func training(t time.Time) (ok bool) {
 
 	args := []string{"./python/production.h5"}
 	end := t.Add(time.Duration(requiredSubsequent) * stepsize)
-	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); end.Sub(i) >= 0; i = i.Add(stepsize) {
-		if cache[i].w.Meta().ID() > latest.ID() {
-			latest = cache[i].w.Meta()
+	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
+		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) >= 0; j = j.Add(stepsize) {
+			if cache[j].w.Meta().ID() > latest.ID() {
+				latest = cache[j].w.Meta()
+			}
+			if cache[j].p.Meta().ID() > latest.ID() {
+				latest = cache[j].p.Meta()
+			}
+			args = append(args, formatTime(j)...)
+			args = append(args, formatWeather(cache[j].w.Data())...)
 		}
-		if cache[i].p.Meta().ID() > latest.ID() {
-			latest = cache[i].p.Meta()
-		}
-		args = append(args, formatTime(i)...)
-		args = append(args, formatWeather(cache[i].w.Data())...)
 		args = append(args, formatProduction(cache[i].p.Data())...)
 	}
 
