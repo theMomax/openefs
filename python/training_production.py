@@ -3,8 +3,9 @@
 import sys
 import tensorflow as tf
 import numpy as np
+import tensorflow.keras.backend as K
 
-INPUT_SHAPE = (3,13)
+INPUT_SHAPE = (2,14)
 OUTPUT_SHAPE = 1
 
 if (len(sys.argv) - 2) % (INPUT_SHAPE[0] * INPUT_SHAPE[1] + OUTPUT_SHAPE) != 0 :
@@ -41,6 +42,7 @@ print('Model target:')
 print(model_target)
 
 model = tf.keras.models.load_model(sys.argv[1])
+K.set_value(model.optimizer.lr, 0.001)
 model.fit(model_input, model_target, 
     epochs=40,
     steps_per_epoch=1,

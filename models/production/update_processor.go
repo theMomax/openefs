@@ -25,7 +25,11 @@ func init() {
 		inferenceBatchSize = config.Viper.GetUint(PathInferenceBatchSize)
 		requiredInferenceSubsequent = inferenceBatchSize - 1
 		stepsize = config.Viper.GetDuration(PathStepSize)
-		outdated = stepsize * time.Duration((config.Viper.GetUint(PathConsideredSteps) + batchSize))
+		maxSize := batchSize
+		if inferenceBatchSize > maxSize {
+			maxSize = inferenceBatchSize
+		}
+		outdated = stepsize * time.Duration((config.Viper.GetUint(PathConsideredSteps) + maxSize))
 		model = &metadata.Basic{
 			Timestamp:  timeutils.Now(),
 			Identifier: 0,
@@ -120,7 +124,7 @@ outer:
 			log.WithField("time", t).WithField("index", i).Trace("checking cached value: ", c)
 			// does this step trigger a model-update?
 			// the production-value does exist, and is newer than the model
-			if c != nil && c.p != nil && c.p.Meta().ID() > model.ID() {
+			if batchSize != 0 && c != nil && c.p != nil && c.p.Meta().ID() > model.ID() {
 				log.Trace("step triggers model-update")
 				// can the model be updated?
 				// both values exist for all required preceding and subsequent steps and this one, and there is no gap in the steps
@@ -141,7 +145,7 @@ outer:
 				// can this step be predicted?
 				// the weather-value does exist for this timestamp, and both values exist for all required preceding steps, and there is no gap in the preceding steps
 				if forAllIs(timestamps, func(t time.Time) bool {
-					return weatherExists(cache[t])
+					return fullyExists(cache[t])
 				}, rng(i-int(requiredPreceding), i)...) && forAllIs(timestamps, func(t time.Time) bool {
 					return weatherExists(cache[t]) && (c.p == nil || c.p.IsDerived())
 				}, rngI(i, i+int(requiredInferenceSubsequent))...) && isGapless(timestamps, i-int(requiredPreceding), i+int(requiredInferenceSubsequent), stepsize) {
@@ -157,12 +161,13 @@ outer:
 func inference(t time.Time) {
 	log.WithField("time", t).Debug("starting inference...")
 	args := []string{"./python/production.h5"}
-	end := t.Add(time.Duration(requiredInferenceSubsequent) * stepsize)
-	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
-		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) >= 0; j = j.Add(stepsize) {
-			args = append(args, formatTime(j)...)
-			args = append(args, formatWeather(cache[j].w.Data())...)
-		}
+	end := t.Add(time.Duration(requiredInferenceSubsequent-1) * stepsize)
+	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(t) < 0; i = i.Add(stepsize) {
+		args = append(args, formatProduction(cache[i].p.Data())...)
+	}
+	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); end.Sub(i) >= 0; i = i.Add(stepsize) {
+		args = append(args, formatTime(i)...)
+		args = append(args, formatWeather(cache[i].w.Data())...)
 	}
 
 	log.Trace("calling python")
@@ -173,11 +178,11 @@ func inference(t time.Time) {
 		return
 	}
 
-	var output [][]float64
+	var output []float64
 	elems := bytes.Split(bytes.TrimSpace(out), []byte("Model output:\n"))
 	fout := []byte{}
 	if len(elems) == 2 {
-		fout = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(elems[1], []byte{' '}, []byte{}), []byte{'\n'}, []byte{','}), []byte{'0', '.', ']'}, []byte{'0', '.', '0', ']'}), []byte{',', ','}, []byte{','})
+		fout = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(elems[1], []byte{' '}, []byte{}), []byte{'0', '.', ','}, []byte{'0', '.', '0', ','}), []byte{'0', '.', ']'}, []byte{'0', '.', '0', ']'}), []byte{',', ','}, []byte{','})
 		err = json.Unmarshal(fout, &output)
 	} else {
 		err = errors.New("inference-ouput does not contain result-section")
@@ -205,7 +210,7 @@ func inference(t time.Time) {
 		}
 		cache[t].p = &update{
 			data: &Data{
-				Power: output[i][0],
+				Power: output[i],
 			},
 			time:    t,
 			meta:    m,
@@ -225,7 +230,7 @@ func training(t time.Time) (ok bool) {
 	args := []string{"./python/production.h5"}
 	end := t.Add(time.Duration(requiredSubsequent) * stepsize)
 	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
-		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) >= 0; j = j.Add(stepsize) {
+		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) > 0; j = j.Add(stepsize) {
 			if cache[j].w.Meta().ID() > latest.ID() {
 				latest = cache[j].w.Meta()
 			}
@@ -233,6 +238,7 @@ func training(t time.Time) (ok bool) {
 				latest = cache[j].p.Meta()
 			}
 			args = append(args, formatTime(j)...)
+			args = append(args, formatProduction(cache[j].p.Data())...)
 			args = append(args, formatWeather(cache[j].w.Data())...)
 		}
 		args = append(args, formatProduction(cache[i].p.Data())...)

@@ -4,7 +4,7 @@ import sys
 import tensorflow as tf
 
 
-INPUT_SHAPE = (3, 13)
+INPUT_SHAPE = (2, 14)
 OUTPUT_SHAPE = 1
 
 if len(sys.argv) != 2:
@@ -19,7 +19,7 @@ model.add(tf.keras.layers.Dense(32, activation='relu'))
 model.add(tf.keras.layers.Dense(32, activation='relu'))
 model.add(tf.keras.layers.Dense(OUTPUT_SHAPE, activation='relu'))
 
-model.compile(optimizer=tf.keras.optimizers.Adam(lr=0.05), loss='mae')
+model.compile(optimizer=tf.keras.optimizers.RMSprop(), loss='mae')
 
 model.summary()
 
