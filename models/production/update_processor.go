@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -19,7 +20,6 @@ import (
 
 func init() {
 	config.OnInitialize(func() {
-		requiredPreceding = config.Viper.GetUint(PathConsideredSteps)
 		batchSize = config.Viper.GetUint(PathBatchSize)
 		requiredSubsequent = batchSize - 1
 		inferenceBatchSize = config.Viper.GetUint(PathInferenceBatchSize)
@@ -29,7 +29,7 @@ func init() {
 		if inferenceBatchSize > maxSize {
 			maxSize = inferenceBatchSize
 		}
-		outdated = stepsize * time.Duration((config.Viper.GetUint(PathConsideredSteps) + maxSize))
+		outdated = stepsize * time.Duration(maxSize)
 		model = &metadata.Basic{
 			Timestamp:  timeutils.Now(),
 			Identifier: 0,
@@ -53,7 +53,6 @@ type cupdate struct {
 
 var (
 	stepsize                    time.Duration
-	requiredPreceding           uint
 	batchSize                   uint
 	requiredSubsequent          uint
 	inferenceBatchSize          uint
@@ -79,7 +78,8 @@ func handleProductionUpdate(u Update) {
 		time: u.Time(),
 		meta: u.Meta(),
 		data: &Data{
-			Power: u.Data().Power,
+			Power:              u.Data().Power,
+			nonNormalizedPower: u.Data().nonNormalizedPower,
 		},
 		derived: false,
 	}
@@ -130,7 +130,7 @@ outer:
 				// both values exist for all required preceding and subsequent steps and this one, and there is no gap in the steps
 				if forAllIs(timestamps, func(t time.Time) bool {
 					return fullyExists(cache[t]) && !cache[t].p.IsDerived()
-				}, rngI(i-int(requiredPreceding), i+int(requiredSubsequent))...) && isGapless(timestamps, i-int(requiredPreceding), i+int(requiredSubsequent), stepsize) {
+				}, rngI(i, i+int(requiredSubsequent))...) && isGapless(timestamps, i, i+int(requiredSubsequent), stepsize) {
 					log.Trace("step fullfills requirements for model update")
 					modelDidChange = training(t)
 					continue outer
@@ -145,10 +145,8 @@ outer:
 				// can this step be predicted?
 				// the weather-value does exist for this timestamp, and both values exist for all required preceding steps, and there is no gap in the preceding steps
 				if forAllIs(timestamps, func(t time.Time) bool {
-					return fullyExists(cache[t])
-				}, rng(i-int(requiredPreceding), i)...) && forAllIs(timestamps, func(t time.Time) bool {
 					return weatherExists(cache[t]) && (c.p == nil || c.p.IsDerived())
-				}, rngI(i, i+int(requiredInferenceSubsequent))...) && isGapless(timestamps, i-int(requiredPreceding), i+int(requiredInferenceSubsequent), stepsize) {
+				}, rngI(i, i+int(requiredInferenceSubsequent))...) && isGapless(timestamps, i, i+int(requiredInferenceSubsequent), stepsize) {
 					log.Trace("step can be predicted")
 					log.Trace(formatCache(cache))
 					inference(t)
@@ -162,10 +160,7 @@ func inference(t time.Time) {
 	log.WithField("time", t).Debug("starting inference...")
 	args := []string{"./python/production.h5"}
 	end := t.Add(time.Duration(requiredInferenceSubsequent-1) * stepsize)
-	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(t) < 0; i = i.Add(stepsize) {
-		args = append(args, formatProduction(cache[i].p.Data())...)
-	}
-	for i := t.Add(-1 * time.Duration(requiredPreceding) * stepsize); end.Sub(i) >= 0; i = i.Add(stepsize) {
+	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
 		args = append(args, formatTime(i)...)
 		args = append(args, formatWeather(cache[i].w.Data())...)
 	}
@@ -178,11 +173,11 @@ func inference(t time.Time) {
 		return
 	}
 
-	var output []float64
+	var output [][][]float64
 	elems := bytes.Split(bytes.TrimSpace(out), []byte("Model output:\n"))
 	fout := []byte{}
 	if len(elems) == 2 {
-		fout = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(elems[1], []byte{' '}, []byte{}), []byte{'0', '.', ','}, []byte{'0', '.', '0', ','}), []byte{'0', '.', ']'}, []byte{'0', '.', '0', ']'}), []byte{',', ','}, []byte{','})
+		fout = bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(bytes.ReplaceAll(elems[1], []byte{'\n'}, []byte{','}), []byte{' '}, []byte{}), []byte{'0', '.', ','}, []byte{'0', '.', '0', ','}), []byte{'0', '.', ']'}, []byte{'0', '.', '0', ']'}), []byte{',', ','}, []byte{','})
 		err = json.Unmarshal(fout, &output)
 	} else {
 		err = errors.New("inference-ouput does not contain result-section")
@@ -205,12 +200,9 @@ func inference(t time.Time) {
 	for i := range output {
 		t := t.Add(time.Duration(i) * stepsize)
 		m := latest(model, cache[t].w.Meta())
-		if i > 0 {
-			m = latest(m, cache[t.Add(-1*stepsize)].p.Meta())
-		}
 		cache[t].p = &update{
 			data: &Data{
-				Power: output[i],
+				Power: output[i][0][0],
 			},
 			time:    t,
 			meta:    m,
@@ -230,18 +222,16 @@ func training(t time.Time) (ok bool) {
 	args := []string{"./python/production.h5"}
 	end := t.Add(time.Duration(requiredSubsequent) * stepsize)
 	for i := t; end.Sub(i) >= 0; i = i.Add(stepsize) {
-		for j := i.Add(-1 * time.Duration(requiredPreceding) * stepsize); i.Sub(j) > 0; j = j.Add(stepsize) {
-			if cache[j].w.Meta().ID() > latest.ID() {
-				latest = cache[j].w.Meta()
-			}
-			if cache[j].p.Meta().ID() > latest.ID() {
-				latest = cache[j].p.Meta()
-			}
-			args = append(args, formatTime(j)...)
-			args = append(args, formatProduction(cache[j].p.Data())...)
-			args = append(args, formatWeather(cache[j].w.Data())...)
+		if cache[i].w.Meta().ID() > latest.ID() {
+			latest = cache[i].w.Meta()
 		}
+		if cache[i].p.Meta().ID() > latest.ID() {
+			latest = cache[i].p.Meta()
+		}
+		args = append(args, formatTime(i)...)
+		args = append(args, formatWeather(cache[i].w.Data())...)
 		args = append(args, formatProduction(cache[i].p.Data())...)
+		fmt.Println("target:", formatProduction(cache[i].p.Data()), " (", i.Hour(), ")")
 	}
 
 	log.Trace("calling python")

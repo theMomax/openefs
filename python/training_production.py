@@ -35,7 +35,7 @@ print('Model target:')
 print(model_target)
 
 model = tf.keras.models.load_model(sys.argv[1])
-# K.set_value(model.optimizer.lr, 0.001)
+K.set_value(model.optimizer.lr, 0.001)
 model.fit(model_input, model_target, 
     epochs=200,
     steps_per_epoch=1,

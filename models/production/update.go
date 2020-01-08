@@ -17,7 +17,6 @@ const (
 	PathStepSize               = "models.production.stepsize"
 	PathBatchSize              = "models.production.batchsize"
 	PathInferenceBatchSize     = "models.production.inferencebatchsize"
-	PathConsideredSteps        = "models.production.consideredsteps"
 	PathMaximumProductionPower = "models.production.maximumpower"
 	PathNormalizationMethod    = "models.production.normalizationmethod"
 )
@@ -37,9 +36,6 @@ func init() {
 
 	config.RootCtx.PersistentFlags().Uint(PathInferenceBatchSize, 24, "the amount of steps compiled into a single inference process")
 	config.Viper.BindPFlag(PathInferenceBatchSize, config.RootCtx.PersistentFlags().Lookup(PathInferenceBatchSize))
-
-	config.RootCtx.PersistentFlags().Uint(PathConsideredSteps, 2, "the amount of preceding time-steps required for making a prediction")
-	config.Viper.BindPFlag(PathConsideredSteps, config.RootCtx.PersistentFlags().Lookup(PathConsideredSteps))
 
 	config.RootCtx.PersistentFlags().Float64(PathMaximumProductionPower, 0, "the installed peak-production power (in Watts)")
 	config.Viper.BindPFlag(PathMaximumProductionPower, config.RootCtx.PersistentFlags().Lookup(PathMaximumProductionPower))
@@ -97,7 +93,8 @@ type Update interface {
 // production-forecasing-model.
 type Data struct {
 	// Power holds the average power produced by the system over some duration.
-	Power float64 `csv:"production"`
+	Power              float64 `csv:"production"`
+	nonNormalizedPower float64
 }
 
 var weatherUpdates chan weather.Update
@@ -118,6 +115,7 @@ func Run(bufferSize uint) {
 		for {
 			select {
 			case u := <-incomingProductionUpdates:
+				u.Data().nonNormalizedPower = u.Data().Power
 				u.Data().Power = normalize(u.Data().Power, u.Time())
 				handleProductionUpdate(u)
 			case wu := <-weatherUpdates:
@@ -130,7 +128,11 @@ func Run(bufferSize uint) {
 	go func() {
 		for {
 			u := <-outgoingProductionUpdates
-			u.Data().Power = denormalize(u.Data().Power, u.Time())
+			if !u.IsDerived() {
+				u.Data().Power = u.Data().nonNormalizedPower
+			} else {
+				u.Data().Power = denormalize(u.Data().Power, u.Time())
+			}
 			notify(u)
 		}
 	}()
@@ -244,6 +246,9 @@ func denormalizeByMaxPower(p float64, t time.Time) float64 {
 }
 
 func normalizeByAvgDay(p float64, t time.Time) float64 {
+	if t.Hour() < 7 || t.Hour() > 20 {
+		return 1.0
+	}
 	n := 1.0
 	if p != 0 {
 		n = p
@@ -255,6 +260,9 @@ func normalizeByAvgDay(p float64, t time.Time) float64 {
 }
 
 func denormalizeByAvgDay(p float64, t time.Time) float64 {
+	if t.Hour() < 7 || t.Hour() > 20 {
+		return 0.0
+	}
 	n := 1.0
 	if p != 0 {
 		n = p
