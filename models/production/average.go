@@ -1,4 +1,4 @@
-package average
+package production
 
 import (
 	"sync"
@@ -6,14 +6,13 @@ import (
 
 	"github.com/theMomax/openefs/cache/generic"
 	"github.com/theMomax/openefs/config"
-	models "github.com/theMomax/openefs/models/production"
 	"github.com/theMomax/openefs/utils/numbers"
 	timeutils "github.com/theMomax/openefs/utils/time"
 )
 
 // Config paths
 const (
-	PathHalfLife = "cache.production.average.halflife"
+	PathHalfLife = "models.production.average.halflife"
 )
 
 func init() {
@@ -22,8 +21,8 @@ func init() {
 
 	config.OnInitialize(func() {
 		halfLife = config.Viper.GetFloat64(PathHalfLife)
-		outdatedAfter = config.Viper.GetDuration(models.PathStepSize)
-		cache = generic.NewCache(outdated)
+		outdatedAfter = config.Viper.GetDuration(PathStepSize)
+		avgcache = generic.NewCache(avgoutdated)
 	})
 }
 
@@ -35,20 +34,22 @@ type element struct {
 	hourOfDay  uint
 }
 
+// TODO: rewrite this into an instance that can be used by cache and this package
+
 var halfLife float64
 
 var outdatedAfter time.Duration
 
-var cache *generic.Cache
+var avgcache *generic.Cache
 
-// Run initializes the caching package.
-func Run() {
-	models.Subscribe(func(u models.Update) {
-		dist := models.Round(u.Time()).Sub(models.Round(timeutils.Now()))
+// RunAverage initializes the caching package.
+func RunAverage() {
+	Subscribe(func(u Update) {
+		dist := Round(u.Time()).Sub(Round(timeutils.Now()))
 		daysAhead := uint(dist.Truncate(24*time.Hour) / (24 * time.Hour))
 		hourOfDay := uint(u.Time().Hour())
 
-		v, ok := cache.Get(daysAhead*24 + hourOfDay).(*element)
+		v, ok := avgcache.Get(daysAhead*24 + hourOfDay).(*element)
 		if !ok {
 			v = &element{
 				derived:    numbers.NewAverageSum(halfLife),
@@ -65,11 +66,11 @@ func Run() {
 		} else {
 			v.nonderived.Apply(u.Data().Power)
 		}
-		cache.Update(v)
+		avgcache.Update(v)
 	})
 }
 
-func outdated(at interface{}) bool {
+func avgoutdated(at interface{}) bool {
 	return false
 }
 
@@ -83,7 +84,7 @@ func (e *element) Hash() interface{} {
 
 // GetDerived returns the average derived power for time t.
 func GetDerived(daysAhead, hourOfDay uint) (val float64, ok bool) {
-	v, ok := cache.Get(daysAhead*24 + hourOfDay).(*element)
+	v, ok := avgcache.Get(daysAhead*24 + hourOfDay).(*element)
 	if !ok {
 		return 0.0, false
 	}
@@ -94,7 +95,7 @@ func GetDerived(daysAhead, hourOfDay uint) (val float64, ok bool) {
 
 // GetNonDerived returns the average non-derived power for time t.
 func GetNonDerived(daysAhead, hourOfDay uint) (val float64, ok bool) {
-	v, ok := cache.Get(daysAhead*24 + hourOfDay).(*element)
+	v, ok := avgcache.Get(daysAhead*24 + hourOfDay).(*element)
 	if !ok {
 		return 0.0, false
 	}

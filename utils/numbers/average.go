@@ -14,11 +14,19 @@ type Average struct {
 // "weight" is only half of the one, that has just been applied. The Apply
 // function takes two arguments: the expected and actual value.
 func NewMAE(halfLife float64) *Average {
-	return NewAverage(math.Pow(0.5, 1/halfLife), ABSDIFF)
+	w := 0.0
+	if halfLife > 0 {
+		w = math.Pow(0.5, 1/halfLife)
+	}
+	return NewAverage(w, ABSDIFF)
 }
 
 func NewAverageSum(halfLife float64) *Average {
-	return NewAverage(math.Pow(0.5, 1/halfLife), SUM)
+	w := 0.0
+	if halfLife > 0 {
+		w = math.Pow(0.5, 1/halfLife)
+	}
+	return NewAverage(w, SUM)
 }
 
 func NewAverage(weight float64, operator func(...float64) float64) *Average {

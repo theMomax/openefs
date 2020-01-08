@@ -19,6 +19,13 @@ const (
 	PathInferenceBatchSize     = "models.production.inferencebatchsize"
 	PathConsideredSteps        = "models.production.consideredsteps"
 	PathMaximumProductionPower = "models.production.maximumpower"
+	PathNormalizationMethod    = "models.production.normalizationmethod"
+)
+
+// Normalization methods
+const (
+	maxpower   = "maxpower"
+	averageday = "averageday"
 )
 
 func init() {
@@ -37,14 +44,30 @@ func init() {
 	config.RootCtx.PersistentFlags().Float64(PathMaximumProductionPower, 0, "the installed peak-production power (in Watts)")
 	config.Viper.BindPFlag(PathMaximumProductionPower, config.RootCtx.PersistentFlags().Lookup(PathMaximumProductionPower))
 
+	config.RootCtx.PersistentFlags().String(PathNormalizationMethod, maxpower, "the method used for normalizing the power value before passed into the production-model (one of: "+maxpower+", "+averageday+")")
+	config.Viper.BindPFlag(PathNormalizationMethod, config.RootCtx.PersistentFlags().Lookup(PathNormalizationMethod))
+
 	config.OnInitialize(func() {
 		log = config.NewLogger()
 	})
 
 	config.OnInitialize(func() {
 		maximumProductionPower = config.Viper.GetFloat64(PathMaximumProductionPower)
-		if maximumProductionPower <= 0 {
+		if config.Viper.GetString(PathNormalizationMethod) == maxpower && maximumProductionPower <= 0 {
 			config.InvalidConfiguration(PathMaximumProductionPower, "(0, +inf) W")
+		}
+	})
+
+	config.OnInitialize(func() {
+		switch config.Viper.GetString(PathNormalizationMethod) {
+		case maxpower:
+			normalize = normalizeByMaxPower
+			denormalize = denormalizeByMaxPower
+		case averageday:
+			normalize = normalizeByAvgDay
+			denormalize = denormalizeByAvgDay
+		default:
+			config.InvalidConfiguration(PathNormalizationMethod, maxpower+", "+averageday)
 		}
 	})
 }
@@ -54,6 +77,8 @@ var log *logrus.Logger
 var (
 	maximumProductionPower float64
 )
+
+var normalize, denormalize func(float64, time.Time) float64
 
 // Update is the typed equivalence to models.Update for production-updates.
 type Update interface {
@@ -93,7 +118,7 @@ func Run(bufferSize uint) {
 		for {
 			select {
 			case u := <-incomingProductionUpdates:
-				u.Data().Power /= maximumProductionPower
+				u.Data().Power = normalize(u.Data().Power, u.Time())
 				handleProductionUpdate(u)
 			case wu := <-weatherUpdates:
 				handleWeatherUpdate(wu)
@@ -105,10 +130,11 @@ func Run(bufferSize uint) {
 	go func() {
 		for {
 			u := <-outgoingProductionUpdates
-			u.Data().Power *= maximumProductionPower
+			u.Data().Power = denormalize(u.Data().Power, u.Time())
 			notify(u)
 		}
 	}()
+	RunAverage()
 }
 
 // UpdateWeather receives a update on weather-data. This call may block if the
@@ -207,4 +233,34 @@ func (u *update) Meta() metadata.Metadata {
 
 func (u *update) IsDerived() bool {
 	return u.derived
+}
+
+func normalizeByMaxPower(p float64, t time.Time) float64 {
+	return p / maximumProductionPower
+}
+
+func denormalizeByMaxPower(p float64, t time.Time) float64 {
+	return p * maximumProductionPower
+}
+
+func normalizeByAvgDay(p float64, t time.Time) float64 {
+	n := 1.0
+	if p != 0 {
+		n = p
+	}
+	if v, ok := GetNonDerived(0, uint(t.Hour())); ok && v != 0 {
+		n = v
+	}
+	return p / n
+}
+
+func denormalizeByAvgDay(p float64, t time.Time) float64 {
+	n := 1.0
+	if p != 0 {
+		n = p
+	}
+	if v, ok := GetNonDerived(0, uint(t.Hour())); ok && v != 0 {
+		n = v
+	}
+	return p * n
 }
