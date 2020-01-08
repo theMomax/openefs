@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -231,7 +230,6 @@ func training(t time.Time) (ok bool) {
 		args = append(args, formatTime(i)...)
 		args = append(args, formatWeather(cache[i].w.Data())...)
 		args = append(args, formatProduction(cache[i].p.Data())...)
-		fmt.Println("target:", formatProduction(cache[i].p.Data()), " (", i.Hour(), ")")
 	}
 
 	log.Trace("calling python")
