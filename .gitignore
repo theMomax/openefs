@@ -55,3 +55,5 @@ Temporary Items
 openefs
 python/prototyping/*
 python/*.h5
+preprocessing/*
+dataset/*
