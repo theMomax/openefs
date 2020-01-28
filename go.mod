@@ -12,5 +12,4 @@ require (
 	github.com/spf13/viper v1.5.0
 	github.com/stretchr/testify v1.4.0
 	github.com/tensorflow/tensorflow v2.0.0+incompatible
-	github.com/theMomax/notypo-backend v0.1.0
 )
